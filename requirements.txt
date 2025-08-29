@@ -1,5 +1,10 @@
 numpy>=1.21.0
-librosa>=0.9.0
+librosa>=0.10.0
 opencv-python>=4.5.0
 scipy>=1.7.0
 pillow>=8.0.0
+flask>=2.0.0
+pytest>=6.0.0
+soundfile>=0.12.0
+standard-aifc>=1.0.0
+standard-sunau>=1.0.0

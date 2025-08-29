@@ -1,6 +1,6 @@
 # Music Visualizer Video Generator
 
-A Python-based music visualizer that creates stunning bar-style visualizations and renders them to video files. Inspired by modern audio visualization aesthetics with beautiful color gradients.
+A Python-based music visualizer that creates stunning bar-style visualizations and renders them to video files. Available as both a command-line tool and REST API service.
 
 ## Features
 
@@ -9,6 +9,7 @@ A Python-based music visualizer that creates stunning bar-style visualizations a
 - **High-quality video output** with customizable resolution and frame rate
 - **Audio synchronization** with automatic audio track addition
 - **Optimized rendering** with pre-computed spectrum analysis
+- **REST API** with background job processing
 
 ## Installation
 
@@ -24,17 +25,19 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Basic Usage
+### Command Line Usage
+
+#### Basic Usage
 ```bash
 python video_visualizer.py input_audio.mp3
 ```
 
-### Advanced Options
+#### Advanced Options
 ```bash
 python video_visualizer.py input_audio.mp3 -o my_visualization.mp4 -w 1920 -b 1080 -f 60
 ```
 
-### Parameters
+#### Parameters
 - `input_audio`: Path to your audio file (MP3, WAV, FLAC, OGG supported)
 - `-o, --output`: Output video filename (default: visualization.mp4)
 - `-w, --width`: Video width in pixels (default: 1920)
@@ -42,7 +45,7 @@ python video_visualizer.py input_audio.mp3 -o my_visualization.mp4 -w 1920 -b 10
 - `-f, --fps`: Video frame rate (default: 50)
 - `--no-audio`: Generate video without audio track
 
-## Examples
+#### Examples
 
 Create a 4K visualization at 60fps:
 ```bash
@@ -53,6 +56,69 @@ Generate silent video (video only):
 ```bash
 python video_visualizer.py song.mp3 -o silent_viz.mp4 --no-audio
 ```
+
+### REST API Usage
+
+Start the Flask server:
+```bash
+python app.py
+```
+
+The API will be available at `http://localhost:5000`
+
+#### API Endpoints
+
+**POST /api/visualize**
+Create a visualization job from a local audio file.
+
+Request body:
+```json
+{
+  "audio_path": "/path/to/audio.mp3",
+  "output_path": "/path/to/output.mp4",
+  "width": 1920,
+  "height": 1080,
+  "fps": 50,
+  "include_audio": true
+}
+```
+
+Response:
+```json
+{
+  "job_id": "uuid-string",
+  "status": "pending",
+  "message": "Visualization job started",
+  "output_path": "/path/to/output.mp4"
+}
+```
+
+**GET /api/status/{job_id}**
+Check the status of a visualization job.
+
+Response:
+```json
+{
+  "job_id": "uuid-string",
+  "status": "completed",
+  "progress": 100,
+  "message": "Visualization completed successfully",
+  "output_file": "/path/to/output.mp4",
+  "created_at": 1234567890
+}
+```
+
+**GET /api/jobs**
+List all jobs.
+
+**GET /api/health**
+Health check endpoint.
+
+#### Job Status Values
+- `pending`: Job created but not started
+- `processing`: Job is currently running
+- `completed`: Job finished successfully
+- `failed`: Job encountered an error
 
 ## How It Works
 
