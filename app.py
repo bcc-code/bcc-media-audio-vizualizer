@@ -38,6 +38,9 @@ def generate_visualization_worker(job_id, audio_path, output_path, width, height
         if not visualizer.load_audio(audio_path):
             job.status = 'failed'
             job.error = 'Failed to load audio file'
+            # Clear memory before returning
+            visualizer.audio_data = None
+            visualizer.spectrum_data = []
             return
         
         job.message = 'Rendering visualization'
@@ -53,6 +56,10 @@ def generate_visualization_worker(job_id, audio_path, output_path, width, height
         else:
             job.status = 'failed'
             job.error = 'Failed to render video'
+        
+        # Clear heavy data objects to free memory
+        visualizer.audio_data = None
+        visualizer.spectrum_data = []
             
     except Exception as e:
         job.status = 'failed'
