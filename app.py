@@ -21,7 +21,7 @@ class JobStatus:
         self.error = None
         self.created_at = time.time()
 
-def generate_visualization_worker(job_id, audio_path, output_path, width, height, fps, include_audio):
+def generate_visualization_worker(job_id, audio_path, output_path, width, height, fps, include_audio, text_line1, text_line2):
     """Background worker to generate visualization"""
     try:
         job = jobs[job_id]
@@ -29,7 +29,7 @@ def generate_visualization_worker(job_id, audio_path, output_path, width, height
         job.message = 'Initializing visualizer'
         
         # Create visualizer
-        visualizer = VideoMusicVisualizer(width=width, height=height, fps=fps)
+        visualizer = VideoMusicVisualizer(width=width, height=height, fps=fps, text_line1=text_line1, text_line2=text_line2)
         
         job.message = 'Loading audio file'
         job.progress = 10
@@ -87,6 +87,8 @@ def create_visualization():
     height = data.get('height', 1080)
     fps = data.get('fps', 50)
     include_audio = data.get('include_audio', True)
+    text_line1 = data.get('text_line1')
+    text_line2 = data.get('text_line2')
     
     # Generate job ID
     job_id = str(uuid.uuid4())
@@ -97,7 +99,7 @@ def create_visualization():
     # Start background processing
     thread = threading.Thread(
         target=generate_visualization_worker,
-        args=(job_id, audio_path, output_path, width, height, fps, include_audio)
+        args=(job_id, audio_path, output_path, width, height, fps, include_audio, text_line1, text_line2)
     )
     thread.daemon = True
     thread.start()

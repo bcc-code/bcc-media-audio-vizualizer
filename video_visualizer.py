@@ -3,17 +3,22 @@ import librosa
 import cv2
 import sys
 import os
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import argparse
 import threading
 from queue import Queue, Empty
 from concurrent.futures import ThreadPoolExecutor
 
 class VideoMusicVisualizer:
-    def __init__(self, width=1920, height=1080, fps=50):
+    def __init__(self, width=1920, height=1080, fps=50, text_line1=None, text_line2=None):
         self.width = width
         self.height = height
         self.fps = fps
+        
+        # Text overlay parameters
+        self.text_line1 = text_line1
+        self.text_line2 = text_line2
+        self.font = None  # Cache font to avoid loading every frame
 
         # Tweakable parameters for bar behavior
         self.INERTIA = 0.85  # How much inertia bars have (0=no inertia, 0.99=maximum inertia)
@@ -133,6 +138,60 @@ class VideoMusicVisualizer:
         # Create PIL image for easier drawing
         img = Image.new('RGB', (self.width, self.height), self.bg_color)
         draw = ImageDraw.Draw(img)
+
+        # Draw text lines if provided
+        if self.text_line1 or self.text_line2:
+            try:
+                # Load font once and cache it
+                if self.font is None:
+                    font_size = int(self.height * 0.10)  # 10% of video height
+                    print(f"Debug: Calculated font size: {font_size} for height: {self.height}")
+                    
+                    try:
+                        # Common system fonts
+                        font_paths = [
+                            "/System/Library/Fonts/Helvetica.ttc",  # macOS
+                            "/System/Library/Fonts/Arial.ttf",  # macOS fallback
+                            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
+                            "C:/Windows/Fonts/arial.ttf"  # Windows
+                        ]
+                        self.font = None
+                        for font_path in font_paths:
+                            if os.path.exists(font_path):
+                                self.font = ImageFont.truetype(font_path, font_size)
+                                print(f"Debug: Loaded font from {font_path} with size {font_size}")
+                                break
+                        if self.font is None:
+                            # Try to create a scalable bitmap font as fallback
+                            try:
+                                self.font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size)
+                                print(f"Debug: Using Menlo font with size {font_size}")
+                            except:
+                                self.font = ImageFont.load_default()
+                                print(f"Debug: Using default font (size not adjustable)")
+                    except Exception as e:
+                        print(f"Debug: Font loading failed: {e}")
+                        self.font = ImageFont.load_default()
+                
+                font_size = int(self.height * 0.10)  # Recalculate for spacing
+                text_y_start = int(self.height * 0.04)  # 4% from top
+                line_spacing = int(font_size * 1.2)  # 120% of font size
+                
+                if self.text_line1:
+                    bbox = draw.textbbox((0, 0), self.text_line1, font=self.font)
+                    text_width = bbox[2] - bbox[0]
+                    text_x = (self.width - text_width) // 2
+                    draw.text((text_x, text_y_start), self.text_line1, fill=(255, 255, 255), font=self.font)
+                
+                if self.text_line2:
+                    bbox = draw.textbbox((0, 0), self.text_line2, font=self.font)
+                    text_width = bbox[2] - bbox[0]
+                    text_x = (self.width - text_width) // 2
+                    text_y = text_y_start + line_spacing
+                    draw.text((text_x, text_y), self.text_line2, fill=(255, 255, 255), font=self.font)
+                    
+            except Exception as e:
+                print(f"Warning: Could not render text: {e}")
 
         for i, magnitude in enumerate(spectrum):
             # Apply sensitivity to the input magnitude
@@ -299,6 +358,8 @@ def main():
     parser.add_argument('-b', '--height', type=int, default=1080, help='Video height')
     parser.add_argument('-f', '--fps', type=int, default=50, help='Video frame rate')
     parser.add_argument('--no-audio', action='store_true', help='Skip adding audio to output video')
+    parser.add_argument('--text1', help='First line of text to display above visualization')
+    parser.add_argument('--text2', help='Second line of text to display above visualization')
 
     args = parser.parse_args()
 
@@ -307,7 +368,8 @@ def main():
         sys.exit(1)
 
     # Create visualizer
-    visualizer = VideoMusicVisualizer(width=args.width, height=args.height, fps=args.fps)
+    visualizer = VideoMusicVisualizer(width=args.width, height=args.height, fps=args.fps, 
+                                    text_line1=args.text1, text_line2=args.text2)
 
     # Load and process audio
     if not visualizer.load_audio(args.input_audio):
