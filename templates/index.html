@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Music Visualizer API</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }
+        .endpoint { 
+            background: #f5f5f5; 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 5px; 
+        }
+        .method { 
+            font-weight: bold; 
+            color: #007acc; 
+        }
+        pre { 
+            background: #eee; 
+            padding: 10px; 
+            border-radius: 3px; 
+        }
+        .nav { 
+            margin-bottom: 20px; 
+        }
+        .nav a { 
+            color: #007acc; 
+            text-decoration: none; 
+            margin-right: 20px; 
+            font-weight: bold; 
+        }
+        .nav a:hover { 
+            text-decoration: underline; 
+        }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/">API Documentation</a>
+        <a href="/jobs">Jobs Dashboard</a>
+    </div>
+    
+    <h1>Music Visualizer API</h1>
+    <p>REST API for generating music visualizations from local audio files.</p>
+    
+    <div class="endpoint">
+        <div class="method">POST /api/visualize</div>
+        <p>Create visualization from local audio file</p>
+        <p><strong>Body (JSON):</strong></p>
+        <pre>{
+  "audio_path": "/path/to/audio.mp3",
+  "output_path": "/path/to/output.mp4",  // optional
+  "width": 1920,      // optional, default: 1920
+  "height": 1080,     // optional, default: 1080  
+  "fps": 50,          // optional, default: 50
+  "include_audio": true  // optional, default: true
+}</pre>
+    </div>
+    
+    <div class="endpoint">
+        <div class="method">GET /api/status/{job_id}</div>
+        <p>Check status of visualization job</p>
+    </div>
+    
+    <div class="endpoint">
+        <div class="method">GET /api/jobs</div>
+        <p>List all jobs</p>
+    </div>
+    
+    <div class="endpoint">
+        <div class="method">GET /api/health</div>
+        <p>Health check</p>
+    </div>
+</body>
+</html>

@@ -1,8 +1,9 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import os
 import uuid
 import threading
 import time
+from datetime import datetime
 from video_visualizer import VideoMusicVisualizer
 
 app = Flask(__name__)
@@ -150,53 +151,34 @@ def health_check():
 @app.route('/')
 def index():
     """Simple API documentation"""
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Music Visualizer API</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-            .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .method { font-weight: bold; color: #007acc; }
-            pre { background: #eee; padding: 10px; border-radius: 3px; }
-        </style>
-    </head>
-    <body>
-        <h1>Music Visualizer API</h1>
-        <p>REST API for generating music visualizations from local audio files.</p>
-        
-        <div class="endpoint">
-            <div class="method">POST /api/visualize</div>
-            <p>Create visualization from local audio file</p>
-            <p><strong>Body (JSON):</strong></p>
-            <pre>{
-  "audio_path": "/path/to/audio.mp3",
-  "output_path": "/path/to/output.mp4",  // optional
-  "width": 1920,      // optional, default: 1920
-  "height": 1080,     // optional, default: 1080  
-  "fps": 50,          // optional, default: 50
-  "include_audio": true  // optional, default: true
-}</pre>
-        </div>
-        
-        <div class="endpoint">
-            <div class="method">GET /api/status/{job_id}</div>
-            <p>Check status of visualization job</p>
-        </div>
-        
-        <div class="endpoint">
-            <div class="method">GET /api/jobs</div>
-            <p>List all jobs</p>
-        </div>
-        
-        <div class="endpoint">
-            <div class="method">GET /api/health</div>
-            <p>Health check</p>
-        </div>
-    </body>
-    </html>
-    '''
+    return render_template('index.html')
+
+@app.route('/jobs')
+def jobs_dashboard():
+    """Jobs dashboard with server-side rendering"""
+    # Convert jobs to list with formatted data
+    job_list = []
+    for job_id, job in jobs.items():
+        job_data = {
+            'job_id': job_id,
+            'status': job.status,
+            'progress': job.progress,
+            'message': job.message,
+            'created_at': job.created_at,
+            'output_file': job.output_file,
+            'error': job.error
+        }
+        job_list.append(job_data)
+    
+    # Sort by creation time (newest first)
+    job_list.sort(key=lambda x: x['created_at'], reverse=True)
+    
+    return render_template('jobs.html', jobs=job_list)
+
+# Add custom filter for datetime formatting
+@app.template_filter('strftime')
+def strftime_filter(timestamp):
+    return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
