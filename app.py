@@ -46,9 +46,13 @@ def generate_visualization_worker(job_id, audio_path, output_path, width, height
         job.message = 'Rendering visualization'
         job.progress = 30
         
+        # Progress callback for real-time updates
+        def update_progress(progress):
+            job.progress = int(progress)
+        
         # Render video
         audio_for_output = audio_path if include_audio else None
-        if visualizer.render_video(output_path, audio_for_output):
+        if visualizer.render_video(output_path, audio_for_output, update_progress):
             job.status = 'completed'
             job.progress = 100
             job.message = 'Visualization completed successfully'

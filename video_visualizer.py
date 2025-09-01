@@ -5,6 +5,9 @@ import sys
 import os
 from PIL import Image, ImageDraw
 import argparse
+import threading
+from queue import Queue, Empty
+from concurrent.futures import ThreadPoolExecutor
 
 class VideoMusicVisualizer:
     def __init__(self, width=1920, height=1080, fps=50):
@@ -30,7 +33,12 @@ class VideoMusicVisualizer:
         # Audio data
         self.audio_data = None
         self.sample_rate = 44100
-        self.spectrum_data = []
+        self.duration = 0
+        
+        # Streaming parameters
+        self.window_size = 2048 * 4
+        self.hop_length = 512 * 4
+        self.max_freq = 8000
 
         # Colors for bars
         self.bar_color = (255, 255, 255)  # White bars
@@ -74,15 +82,12 @@ class VideoMusicVisualizer:
         return colors
 
     def load_audio(self, file_path):
-        """Load and analyze audio file"""
+        """Load audio file without pre-computing spectrum"""
         try:
             print("Loading audio file...")
             # Load audio with librosa
             self.audio_data, self.sample_rate = librosa.load(file_path, sr=44100)
             self.duration = len(self.audio_data) / self.sample_rate
-
-            # Pre-compute spectrum data for better performance
-            self._precompute_spectrum()
 
             print(f"Audio loaded: {len(self.audio_data)} samples, {self.sample_rate} Hz, {self.duration:.2f}s")
             return True
@@ -90,76 +95,38 @@ class VideoMusicVisualizer:
             print(f"Error loading audio: {e}")
             return False
 
-    def _precompute_spectrum(self):
-        """Pre-compute spectrum data for the entire audio"""
-        print("Analyzing audio spectrum...")
+    def _compute_spectrum_for_frame(self, frame_idx, stft_magnitude, freq_indices, hop_length):
+        """Compute spectrum for a single frame"""
+        # Calculate corresponding audio frame
+        time_pos = frame_idx / self.fps
+        audio_frame_idx = int(time_pos * self.sample_rate / hop_length)
 
-        # Window size for FFT (affects frequency resolution vs time resolution)
-        window_size = 2048*4
-        hop_length = 512*4
+        if audio_frame_idx < stft_magnitude.shape[1]:
+            frame_spectrum = stft_magnitude[freq_indices, audio_frame_idx]
+        else:
+            frame_spectrum = np.zeros(len(freq_indices))
 
-        # Compute STFT (Short-Time Fourier Transform)
-        stft = librosa.stft(self.audio_data, n_fft=window_size, hop_length=hop_length)
-        magnitude = np.abs(stft)
+        # Resample to num_bars
+        if len(frame_spectrum) > self.num_bars:
+            # Average bins together
+            bins_per_bar = len(frame_spectrum) // self.num_bars
+            resampled = []
+            for i in range(self.num_bars):
+                start_idx = i * bins_per_bar
+                end_idx = start_idx + bins_per_bar
+                if end_idx > len(frame_spectrum):
+                    end_idx = len(frame_spectrum)
+                avg_magnitude = np.mean(frame_spectrum[start_idx:end_idx])
+                resampled.append(avg_magnitude)
+        else:
+            # Interpolate if we have fewer bins than bars
+            resampled = np.interp(
+                np.linspace(0, len(frame_spectrum) - 1, self.num_bars),
+                np.arange(len(frame_spectrum)),
+                frame_spectrum
+            )
 
-        # Convert to dB scale and normalize
-        db_magnitude = librosa.amplitude_to_db(magnitude, ref=np.max)
-
-        # Select frequency bins (focus on lower frequencies for better visualization)
-        freq_bins = np.linspace(0, self.sample_rate // 2, window_size // 2 + 1)
-        max_freq = 8000  # Focus on frequencies up to 8kHz
-        freq_indices = np.where(freq_bins <= max_freq)[0]
-
-        # Resample to match video frame rate
-        total_video_frames = int(self.duration * self.fps)
-        spectrum_frames = []
-
-        for frame_idx in range(total_video_frames):
-            # Calculate corresponding audio frame
-            time_pos = frame_idx / self.fps
-            audio_frame_idx = int(time_pos * self.sample_rate / hop_length)
-
-            if audio_frame_idx < db_magnitude.shape[1]:
-                frame_spectrum = db_magnitude[freq_indices, audio_frame_idx]
-            else:
-                frame_spectrum = np.zeros(len(freq_indices))
-
-            # Resample to num_bars
-            if len(frame_spectrum) > self.num_bars:
-                # Average bins together
-                bins_per_bar = len(frame_spectrum) // self.num_bars
-                resampled = []
-                for i in range(self.num_bars):
-                    start_idx = i * bins_per_bar
-                    end_idx = start_idx + bins_per_bar
-                    if end_idx > len(frame_spectrum):
-                        end_idx = len(frame_spectrum)
-                    avg_magnitude = np.mean(frame_spectrum[start_idx:end_idx])
-                    resampled.append(avg_magnitude)
-            else:
-                # Interpolate if we have fewer bins than bars
-                resampled = np.interp(
-                    np.linspace(0, len(frame_spectrum) - 1, self.num_bars),
-                    np.arange(len(frame_spectrum)),
-                    frame_spectrum
-                )
-
-            spectrum_frames.append(resampled)
-
-        self.spectrum_data = np.array(spectrum_frames)
-
-        # Normalize spectrum data (0 to 1)
-        min_val = np.min(self.spectrum_data)
-        max_val = np.max(self.spectrum_data)
-        if max_val > min_val:
-            self.spectrum_data = (self.spectrum_data - min_val) / (max_val - min_val)
-
-        # Apply smoothing and enhance dynamics
-        for i in range(len(self.spectrum_data)):
-            # Enhance the spectrum by applying power scaling
-            self.spectrum_data[i] = np.power(self.spectrum_data[i], 0.7)
-
-        print(f"Audio analysis complete! Generated {len(self.spectrum_data)} video frames")
+        return np.array(resampled)
 
     def create_frame(self, spectrum):
         """Create a single frame of the visualization"""
@@ -193,41 +160,108 @@ class VideoMusicVisualizer:
         # Convert to numpy array for OpenCV
         return np.array(img)
 
-    def render_video(self, output_path, audio_path=None):
-        """Render the complete visualization to video"""
-        if len(self.spectrum_data) == 0:
+    def render_video(self, output_path, audio_path=None, progress_callback=None):
+        """Render video with parallel frequency analysis and frame generation"""
+        if self.audio_data is None:
             print("No audio data loaded!")
             return False
 
+        total_frames = int(self.duration * self.fps)
         print(f"Rendering video: {output_path}")
         print(f"Resolution: {self.width}x{self.height}")
         print(f"FPS: {self.fps}")
-        print(f"Total frames: {len(self.spectrum_data)}")
+        print(f"Total frames: {total_frames}")
 
         # Initialize video writer
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        video_writer = cv2.VideoWriter(output_path, fourcc, self.fps, (self.width, self.height))
+        video_writer = cv2.VideoWriter(output_path, fourcc, float(self.fps), (self.width, self.height))
 
         if not video_writer.isOpened():
             print("Error: Could not open video writer")
             return False
 
         try:
-            for frame_idx, spectrum in enumerate(self.spectrum_data):
-                # Create frame
-                frame_rgb = self.create_frame(spectrum)
-
-                # Convert RGB to BGR for OpenCV
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-
-                # Write frame
-                video_writer.write(frame_bgr)
-
-                # Progress indicator
-                if frame_idx % (len(self.spectrum_data) // 10) == 0:
-                    progress = (frame_idx / len(self.spectrum_data)) * 100
-                    print(f"Progress: {progress:.1f}%")
-
+            # Compute STFT once for the entire audio
+            print("Computing STFT...")
+            stft = librosa.stft(self.audio_data, n_fft=self.window_size, hop_length=self.hop_length)
+            magnitude = np.abs(stft)
+            db_magnitude = librosa.amplitude_to_db(magnitude, ref=np.max)
+            
+            # Get frequency indices for filtering
+            freq_bins = np.linspace(0, self.sample_rate // 2, self.window_size // 2 + 1)
+            freq_indices = np.where(freq_bins <= self.max_freq)[0]
+            
+            # Normalize spectrum data
+            min_val = np.min(db_magnitude[freq_indices])
+            max_val = np.max(db_magnitude[freq_indices])
+            if max_val > min_val:
+                db_magnitude = (db_magnitude - min_val) / (max_val - min_val)
+            
+            print("Starting parallel frame generation...")
+            
+            # Frame buffer and processing queues
+            frame_queue = Queue(maxsize=50)  # Limit memory usage
+            spectrum_queue = Queue(maxsize=50)
+            
+            def spectrum_worker():
+                """Worker to compute spectrum data"""
+                for frame_idx in range(total_frames):
+                    spectrum = self._compute_spectrum_for_frame(
+                        frame_idx, db_magnitude, freq_indices, self.hop_length
+                    )
+                    # Apply power scaling for better visualization
+                    spectrum = np.power(spectrum, 0.7)
+                    spectrum_queue.put((frame_idx, spectrum))
+                spectrum_queue.put(None)  # Signal end
+            
+            def frame_worker():
+                """Worker to generate video frames"""
+                while True:
+                    item = spectrum_queue.get()
+                    if item is None:
+                        frame_queue.put(None)
+                        break
+                    
+                    frame_idx, spectrum = item
+                    frame_rgb = self.create_frame(spectrum)
+                    frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                    frame_queue.put((frame_idx, frame_bgr))
+            
+            # Start worker threads
+            spectrum_thread = threading.Thread(target=spectrum_worker)
+            frame_thread = threading.Thread(target=frame_worker)
+            
+            spectrum_thread.start()
+            frame_thread.start()
+            
+            # Write frames as they become available
+            frames_written = 0
+            while frames_written < total_frames:
+                try:
+                    item = frame_queue.get(timeout=30)
+                    if item is None:
+                        break
+                    
+                    frame_idx, frame_bgr = item
+                    video_writer.write(frame_bgr)
+                    frames_written += 1
+                    
+                    # Progress reporting
+                    if progress_callback and frames_written % 10 == 0:
+                        progress = (frames_written / total_frames) * 70 + 20  # 20-90% range
+                        progress_callback(progress)
+                    elif frames_written % (total_frames // 10 + 1) == 0:
+                        progress = (frames_written / total_frames) * 100
+                        print(f"Progress: {progress:.1f}%")
+                        
+                except Empty:
+                    print("Timeout waiting for frame")
+                    break
+            
+            # Wait for threads to finish
+            spectrum_thread.join()
+            frame_thread.join()
+            
             print("Video rendering complete!")
 
         except Exception as e:
@@ -249,6 +283,8 @@ class VideoMusicVisualizer:
             if result == 0:
                 os.remove(temp_video)
                 print("Audio added successfully!")
+                if progress_callback:
+                    progress_callback(100)
             else:
                 print("Warning: Could not add audio. Make sure ffmpeg is installed.")
                 os.rename(temp_video, output_path)
